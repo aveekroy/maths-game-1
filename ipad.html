@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ayansh's Space Math Adventure</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; touch-action: none; user-select: none; }
+        .crystal-glow { text-shadow: 0 0 10px #ff0, 0 0 20px #ff0; }
+        .freeze-warning { animation: flash 1s infinite alternate; }
+        @keyframes flash { from { opacity: 0.5; color: red; } to { opacity: 1; color: yellow; } }
+
+        /* Joystick Zones */
+        #joystick-zone-move { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 50; }
+        #joystick-zone-look { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 150px; z-index: 50; }
+
+        /* Split Options Zones */
+        #options-left { position: absolute; bottom: 180px; left: 20px; width: 150px; z-index: 60; display: none; flex-direction: column; gap: 8px; }
+        #options-right { position: absolute; bottom: 180px; right: 20px; width: 150px; z-index: 60; display: none; flex-direction: column; gap: 8px; }
+    </style>
+</head>
+<body class="text-white font-sans">
+
+    <div id="game-container" class="absolute inset-0"></div>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-4 left-4 z-10 pointer-events-none">
+        <h1 class="text-2xl font-bold text-cyan-400">Score: <span id="score">0</span></h1>
+        <p class="text-sm text-gray-400 mt-1">Best: <span id="high-score">0</span></p>
+        <p id="hyperdrive-status" class="text-green-400 font-bold hidden text-xl mt-2">HYPERDRIVE ACTIVE! (2X POINTS)</p>
+    </div>
+
+    <!-- Flight Timer -->
+    <div class="absolute top-4 right-4 z-10 pointer-events-none text-right">
+        <h1 class="text-xl font-bold text-yellow-400">Next Jump: <span id="flight-timer">30</span>s</h1>
+    </div>
+
+    <!-- System Freeze Warning -->
+    <div id="freeze-warning" class="absolute inset-0 flex flex-col items-center justify-center z-20 hidden bg-red-900 bg-opacity-40 pointer-events-none">
+        <h1 class="text-6xl font-bold freeze-warning mb-4">SYSTEM FREEZE!</h1>
+        <h2 class="text-3xl text-white">Wrong Answer (-1 Point)</h2>
+        <p class="text-xl text-gray-200 mt-2">Thrusters locked for <span id="freeze-timer">10</span> seconds...</p>
+    </div>
+
+    <!-- Asteroid Collision Warning -->
+    <div id="crash-warning" class="absolute inset-0 flex flex-col items-center justify-center z-20 hidden bg-orange-600 bg-opacity-40 pointer-events-none">
+        <h1 class="text-5xl font-bold text-orange-100">COLLISION!</h1>
+        <p class="text-xl text-white mt-2">Asteroid impact (-1 Point)</p>
+    </div>
+
+    <!-- Center Dashboard -->
+    <div id="dashboard" class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 bg-opacity-80 p-4 rounded-xl border border-cyan-500 z-10 text-center shadow-lg min-w-[200px] pointer-events-none hidden">
+        <h2 class="text-sm text-gray-400 mb-1">ENGINE LOCK: ENTER COORDINATES</h2>
+        <div id="question" class="text-4xl font-bold text-yellow-300">Loading...</div>
+    </div>
+
+    <!-- Split Quick-Action Buttons -->
+    <div id="options-left"></div>
+    <div id="options-right"></div>
+
+    <!-- Virtual Joystick Containers -->
+    <div id="joystick-zone-move"></div>
+    <div id="joystick-zone-look"></div>
+
+    <script>
+        // ================================================================
+        // Game State
+        // ================================================================
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('mathGameHighScore') || '0', 10);
+        let correctAnswer = 0;
+        let isHyperdrive = false;
+        let isFrozen = false;
+        let isQuestionActive = false;
+        let freeFlightTime = 30;
+        let crashCooldown = false;
+
+        let hyperdriveTimer = null;
+        let freezeInterval = null;
+        let flightInterval = null;
+
+        // Movement State
+        const moveVector = { forward: 0, right: 0 };
+        const lookVector = { x: 0, y: 0 };
+
+        document.getElementById('high-score').innerText = highScore;
+
+        // ================================================================
+        // Audio — Web Audio API oscillator beeps. No external asset files,
+        // so this works even if the game is ever run offline.
+        // ================================================================
+        let audioCtx = null;
+        function getAudioCtx() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            return audioCtx;
+        }
+        function playTone(freq, duration, type = 'sine', volume = 0.15) {
+            try {
+                const ctx = getAudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type;
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(volume, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + duration);
+            } catch (e) { /* audio blocked/unsupported — fail silently */ }
+        }
+        // iOS/Safari requires a user gesture to unlock the AudioContext.
+        document.body.addEventListener('touchstart', () => getAudioCtx().resume(), { once: true });
+
+        // ================================================================
+        // 3D Setup
+        // ================================================================
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000018, 0.0025);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('game-container').appendChild(renderer.domElement);
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0x222233, 0.6));
+        const createSun = (color, x, y, z) => {
+            const sunGeo = new THREE.SphereGeometry(25, 32, 32);
+            const sunMat = new THREE.MeshBasicMaterial({ color: color });
+            const sun = new THREE.Mesh(sunGeo, sunMat);
+            sun.position.set(x, y, z);
+            scene.add(sun);
+            const light = new THREE.PointLight(color, 3.5, 800);
+            light.position.set(x, y, z);
+            scene.add(light);
+        };
+        createSun(0xffaa00, -300, 200, -500);
+        createSun(0x00aaff, 400, -200, -600);
+
+        // Infinite Universe Arrays
+        const planets = [];
+        const crystals = [];
+
+        // Helper to randomize positions far out around the player.
+        // Works on any object exposing a mutable `.position` Vector3,
+        // including the {position: Vector3} shims used for instanced asteroids.
+        function resetObjectPosition(obj, spread = 600) {
+            obj.position.set(
+                camera.position.x + (Math.random() - 0.5) * spread,
+                camera.position.y + (Math.random() - 0.5) * spread,
+                camera.position.z + (Math.random() - 0.5) * spread
+            );
+        }
+
+        // Generate Infinite Planets
+        for (let i = 0; i < 35; i++) {
+            const size = Math.random() * 30 + 10;
+            const isGasGiant = Math.random() > 0.5;
+            const pMat = new THREE.MeshStandardMaterial({
+                color: Math.random() * 0xffffff,
+                roughness: isGasGiant ? 0.3 : 0.9,
+                metalness: 0.1
+            });
+            const planet = new THREE.Mesh(new THREE.SphereGeometry(size, 32, 32), pMat);
+
+            resetObjectPosition(planet, 1000);
+
+            if (Math.random() > 0.7) {
+                const ringGeo = new THREE.RingGeometry(size * 1.3, size * 2.2, 32);
+                const ringMat = new THREE.MeshStandardMaterial({
+                    color: Math.random() * 0xffffff,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.6
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = Math.random() * Math.PI;
+                ring.rotation.y = Math.random() * Math.PI;
+                planet.add(ring);
+            }
+
+            scene.add(planet);
+            planets.push({ mesh: planet, rotationSpeed: (Math.random() - 0.5) * 0.01 });
+        }
+
+        // ================================================================
+        // Asteroids — InstancedMesh (1 draw call instead of 150) +
+        // collision penalty against the player.
+        // ================================================================
+        const ASTEROID_COUNT = 150;
+        const ASTEROID_COLLIDE_DIST = 10;
+        const astGeo = new THREE.DodecahedronGeometry(6, 1);
+        const astMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.9 });
+        const asteroidMesh = new THREE.InstancedMesh(astGeo, astMat, ASTEROID_COUNT);
+        scene.add(asteroidMesh);
+
+        const asteroidData = [];
+        const dummy = new THREE.Object3D();
+
+        for (let i = 0; i < ASTEROID_COUNT; i++) {
+            const pos = new THREE.Vector3();
+            resetObjectPosition({ position: pos }, 700);
+            asteroidData.push({ position: pos, rotX: Math.random() * Math.PI });
+            dummy.position.copy(pos);
+            dummy.rotation.set(asteroidData[i].rotX, 0, 0);
+            dummy.updateMatrix();
+            asteroidMesh.setMatrixAt(i, dummy.matrix);
+        }
+        asteroidMesh.instanceMatrix.needsUpdate = true;
+
+        // Generate Infinite Crystals
+        const cryGeo = new THREE.OctahedronGeometry(2.5);
+        const cryMat = new THREE.MeshStandardMaterial({ color: 0xffff00, metalness: 0.5, roughness: 0.2, emissive: 0x888800 });
+        for (let i = 0; i < 40; i++) {
+            const crystal = new THREE.Mesh(cryGeo, cryMat);
+            resetObjectPosition(crystal, 600);
+            scene.add(crystal);
+            crystals.push(crystal);
+        }
+
+        // Stars Background Wrapper
+        const starGeo = new THREE.BufferGeometry();
+        const starMat = new THREE.PointsMaterial({ color: 0xaaaaaa, size: 0.6 });
+        const starVertices = [];
+        for (let i = 0; i < 3000; i++) {
+            starVertices.push((Math.random() - 0.5) * 2500, (Math.random() - 0.5) * 2500, (Math.random() - 0.5) * 2500);
+        }
+        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+        const starField = new THREE.Points(starGeo, starMat);
+        scene.add(starField);
+
+        // ================================================================
+        // Math Logic — difficulty ramps every 10 correct answers, capped
+        // at tier 3 (20x10 -> 35x16).
+        // ================================================================
+        function generateQuestion() {
+            const tier = Math.min(Math.floor(score / 10), 3);
+            const maxA = 20 + tier * 5;
+            const maxB = 10 + tier * 2;
+
+            let num1 = Math.floor(Math.random() * maxA) + 1;
+            let num2 = Math.floor(Math.random() * maxB) + 1;
+            if (Math.random() > 0.5) [num1, num2] = [num2, num1];
+
+            correctAnswer = num1 * num2;
+            document.getElementById('question').innerText = `${num1} × ${num2} = ?`;
+
+            let options = [correctAnswer];
+            while (options.length < 4) {
+                let wrong = correctAnswer + (Math.floor(Math.random() * 20) - 10);
+                if (wrong > 0 && wrong !== correctAnswer && !options.includes(wrong)) {
+                    options.push(wrong);
+                }
+            }
+            options.sort(() => Math.random() - 0.5);
+
+            const optionsLeftDiv = document.getElementById('options-left');
+            const optionsRightDiv = document.getElementById('options-right');
+            optionsLeftDiv.innerHTML = '';
+            optionsRightDiv.innerHTML = '';
+
+            options.forEach((opt, index) => {
+                const btn = document.createElement('button');
+                btn.className = "bg-cyan-700 bg-opacity-90 hover:bg-cyan-500 active:bg-cyan-300 text-white font-bold py-3 px-4 rounded-xl border-2 border-cyan-400 touch-manipulation shadow-lg text-xl";
+                btn.innerText = opt;
+                btn.onclick = () => checkAnswer(opt);
+
+                if (index < 2) {
+                    optionsLeftDiv.appendChild(btn);
+                } else {
+                    optionsRightDiv.appendChild(btn);
+                }
+            });
+        }
+
+        function showQuestionUI() {
+            isQuestionActive = true;
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('options-left').style.display = 'flex';
+            document.getElementById('options-right').style.display = 'flex';
+        }
+
+        function hideQuestionUI() {
+            isQuestionActive = false;
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('options-left').style.display = 'none';
+            document.getElementById('options-right').style.display = 'none';
+        }
+
+        function flashCorrect() {
+            const el = document.getElementById('score');
+            el.classList.add('crystal-glow');
+            setTimeout(() => el.classList.remove('crystal-glow'), 400);
+        }
+
+        function updateHighScore() {
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('mathGameHighScore', highScore);
+                document.getElementById('high-score').innerText = highScore;
+            }
+        }
+
+        function checkAnswer(answer) {
+            if (isFrozen || !isQuestionActive) return;
+
+            if (answer === correctAnswer) {
+                score++;
+                document.getElementById('score').innerText = score;
+                updateHighScore();
+                flashCorrect();
+                playTone(880, 0.15, 'sine');
+                hideQuestionUI();
+                freeFlightTime = 30;
+                document.getElementById('flight-timer').innerText = freeFlightTime;
+                activateHyperdrive();
+            } else {
+                score = Math.max(0, score - 1);
+                document.getElementById('score').innerText = score;
+                playTone(140, 0.4, 'sawtooth');
+                hideQuestionUI();
+                activateFreeze();
+            }
+        }
+
+        // Freeze Penalty
+        function activateFreeze() {
+            isFrozen = true;
+            document.getElementById('freeze-warning').classList.remove('hidden');
+            let timeLeft = 10;
+            document.getElementById('freeze-timer').innerText = timeLeft;
+            if (freezeInterval) clearInterval(freezeInterval);
+            freezeInterval = setInterval(() => {
+                timeLeft--;
+                document.getElementById('freeze-timer').innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(freezeInterval);
+                    isFrozen = false;
+                    document.getElementById('freeze-warning').classList.add('hidden');
+                    generateQuestion();
+                    showQuestionUI();
+                }
+            }, 1000);
+        }
+
+        // Hyperdrive
+        function activateHyperdrive() {
+            isHyperdrive = true;
+            document.getElementById('hyperdrive-status').classList.remove('hidden');
+            if (hyperdriveTimer) clearTimeout(hyperdriveTimer);
+            hyperdriveTimer = setTimeout(() => {
+                isHyperdrive = false;
+                document.getElementById('hyperdrive-status').classList.add('hidden');
+                camera.fov = 75;
+                camera.updateProjectionMatrix();
+            }, 5000);
+        }
+
+        // Asteroid Collision Penalty (with recoil + short cooldown to avoid spam)
+        function triggerCrash(dir) {
+            if (crashCooldown || isFrozen || isQuestionActive) return;
+            crashCooldown = true;
+            score = Math.max(0, score - 1);
+            document.getElementById('score').innerText = score;
+            playTone(100, 0.3, 'square', 0.2);
+            document.getElementById('crash-warning').classList.remove('hidden');
+            camera.position.addScaledVector(dir, -15); // push back out of the asteroid
+            setTimeout(() => document.getElementById('crash-warning').classList.add('hidden'), 300);
+            setTimeout(() => { crashCooldown = false; }, 1500);
+        }
+
+        // Timer Loop
+        flightInterval = setInterval(() => {
+            if (!isFrozen && !isQuestionActive) {
+                freeFlightTime--;
+                document.getElementById('flight-timer').innerText = freeFlightTime;
+
+                if (freeFlightTime <= 0) {
+                    generateQuestion();
+                    showQuestionUI();
+                }
+            }
+        }, 1000);
+
+        // Joysticks Setup
+        const moveJoystick = nipplejs.create({
+            zone: document.getElementById('joystick-zone-move'),
+            mode: 'static',
+            position: { left: '50%', top: '50%' },
+            color: 'cyan'
+        });
+
+        moveJoystick.on('move', (evt, data) => {
+            if (!isFrozen && !isQuestionActive) {
+                moveVector.forward = Math.sin(data.angle.radian) * data.distance * 0.02;
+                moveVector.right = Math.cos(data.angle.radian) * data.distance * 0.02;
+            }
+        });
+
+        moveJoystick.on('end', () => {
+            moveVector.forward = 0;
+            moveVector.right = 0;
+        });
+
+        const lookJoystick = nipplejs.create({
+            zone: document.getElementById('joystick-zone-look'),
+            mode: 'static',
+            position: { right: '50%', top: '50%' },
+            color: 'yellow'
+        });
+
+        lookJoystick.on('move', (evt, data) => {
+            if (!isFrozen && !isQuestionActive) {
+                lookVector.x = Math.cos(data.angle.radian) * data.distance * 0.0005;
+                lookVector.y = Math.sin(data.angle.radian) * data.distance * 0.0005;
+            }
+        });
+
+        lookJoystick.on('end', () => {
+            lookVector.x = 0;
+            lookVector.y = 0;
+        });
+
+        // ================================================================
+        // Floating-Origin Recentering — prevents float precision drift
+        // building up over long, uninterrupted flights.
+        // ================================================================
+        const RECENTER_THRESHOLD = 5000;
+        function recenterWorld() {
+            if (camera.position.length() <= RECENTER_THRESHOLD) return;
+            const shift = camera.position.clone();
+
+            camera.position.sub(shift);
+            planets.forEach(p => p.mesh.position.sub(shift));
+            crystals.forEach(c => c.position.sub(shift));
+            asteroidData.forEach(a => a.position.sub(shift));
+            // asteroid instance matrices are rewritten every frame in animate(), so no extra GPU sync needed here
+        }
+
+        // ================================================================
+        // Flight & Infinite Recycling Loop
+        // ================================================================
+        const direction = new THREE.Vector3();
+        const rightVector = new THREE.Vector3();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            crystals.forEach(c => c.rotation.y += 0.05);
+            planets.forEach(p => p.mesh.rotation.y += p.rotationSpeed);
+
+            if (!isFrozen && !isQuestionActive) {
+                recenterWorld();
+
+                const speedMult = isHyperdrive ? 3.0 : 0.5;
+
+                if (isHyperdrive) {
+                    camera.fov = THREE.MathUtils.lerp(camera.fov, 100, 0.1);
+                    camera.updateProjectionMatrix();
+                } else {
+                    camera.fov = THREE.MathUtils.lerp(camera.fov, 75, 0.1);
+                    camera.updateProjectionMatrix();
+                }
+
+                if (lookVector.x !== 0 || lookVector.y !== 0) {
+                    camera.rotation.y -= lookVector.x;
+                    camera.rotation.x -= lookVector.y;
+                    camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+                }
+
+                camera.getWorldDirection(direction);
+                rightVector.crossVectors(direction, camera.up).normalize();
+
+                if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
+                if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
+
+                // Planets: recycle only
+                planets.forEach(p => {
+                    if (camera.position.distanceTo(p.mesh.position) > 900) {
+                        resetObjectPosition(p.mesh, 1000);
+                    }
+                });
+
+                // Asteroids: rotate, recycle, collide — rewritten into the InstancedMesh each frame
+                asteroidData.forEach((a, i) => {
+                    a.rotX += 0.005;
+
+                    if (camera.position.distanceTo(a.position) > 600) {
+                        resetObjectPosition({ position: a.position }, 700);
+                    } else if (camera.position.distanceTo(a.position) < ASTEROID_COLLIDE_DIST) {
+                        triggerCrash(direction);
+                    }
+
+                    dummy.position.copy(a.position);
+                    dummy.rotation.set(a.rotX, 0, 0);
+                    dummy.updateMatrix();
+                    asteroidMesh.setMatrixAt(i, dummy.matrix);
+                });
+                asteroidMesh.instanceMatrix.needsUpdate = true;
+
+                // Crystal Collection & Infinite Recycling
+                crystals.forEach((crystal) => {
+                    if (camera.position.distanceTo(crystal.position) > 500) {
+                        resetObjectPosition(crystal, 600);
+                        crystal.visible = true;
+                    }
+
+                    if (crystal.visible && camera.position.distanceTo(crystal.position) < 15) {
+                        crystal.visible = false;
+                        score += isHyperdrive ? 2 : 1;
+                        document.getElementById('score').innerText = score;
+                        updateHighScore();
+                        playTone(1046, 0.1, 'triangle', 0.12);
+
+                        setTimeout(() => {
+                            resetObjectPosition(crystal, 400);
+                            crystal.visible = true;
+                        }, 1500);
+                    }
+                });
+
+                starField.position.copy(camera.position);
+            }
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+        });
+
+        animate();
+    </script>
+</body>
+</html>
