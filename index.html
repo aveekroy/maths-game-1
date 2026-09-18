@@ -6,26 +6,30 @@
     <title>Ayansh's Space Math Adventure</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Nipple.js for Virtual Joysticks -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; touch-action: none; }
+        body { margin: 0; overflow: hidden; background-color: #000; touch-action: none; user-select: none; }
         .crystal-glow { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
         .freeze-warning { animation: flash 1s infinite alternate; }
         @keyframes flash { from { opacity: 0.5; color: red; } to { opacity: 1; color: yellow; } }
+        #joystick-zone { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 50; }
+        #look-zone { position: absolute; top: 0; right: 0; width: 50%; height: 100%; z-index: 5; }
     </style>
 </head>
 <body class="text-white font-sans">
 
-    <!-- Game Container -->
     <div id="game-container" class="absolute inset-0"></div>
+    <div id="look-zone"></div> <!-- Swipe area for camera rotation -->
 
     <!-- UI Overlay -->
-    <div class="absolute top-4 left-4 z-10">
+    <div class="absolute top-4 left-4 z-10 pointer-events-none">
         <h1 class="text-2xl font-bold text-cyan-400">Score: <span id="score">0</span></h1>
         <p id="hyperdrive-status" class="text-green-400 font-bold hidden text-xl mt-2">HYPERDRIVE ACTIVE!</p>
     </div>
 
     <!-- System Freeze Warning -->
-    <div id="freeze-warning" class="absolute inset-0 flex flex-col items-center justify-center z-20 hidden bg-red-900 bg-opacity-40">
+    <div id="freeze-warning" class="absolute inset-0 flex flex-col items-center justify-center z-20 hidden bg-red-900 bg-opacity-40 pointer-events-none">
         <h1 class="text-6xl font-bold freeze-warning mb-4">SYSTEM FREEZE!</h1>
         <h2 class="text-3xl text-white">Wrong Answer (-1 Point)</h2>
         <p class="text-xl text-gray-200 mt-2">Thrusters locked for <span id="freeze-timer">10</span> seconds...</p>
@@ -40,25 +44,10 @@
         </div>
     </div>
 
-    <!-- iPad Virtual Joystick -->
-    <div id="virtual-joystick" class="absolute bottom-8 left-8 w-32 h-32 bg-slate-800 bg-opacity-60 rounded-full select-none z-50">
-        <div class="absolute top-0 left-1/2 transform -translate-x-1/2 w-10 h-10 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
-             ontouchstart="simKey('w', true)" ontouchend="simKey('w', false)" onmousedown="simKey('w', true)" onmouseup="simKey('w', false)">W</div>
-        <div class="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-10 h-10 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
-             ontouchstart="simKey('s', true)" ontouchend="simKey('s', false)" onmousedown="simKey('s', true)" onmouseup="simKey('s', false)">S</div>
-        <div class="absolute left-0 top-1/2 transform -translate-y-1/2 w-10 h-10 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
-             ontouchstart="simKey('a', true)" ontouchend="simKey('a', false)" onmousedown="simKey('a', true)" onmouseup="simKey('a', false)">A</div>
-        <div class="absolute right-0 top-1/2 transform -translate-y-1/2 w-10 h-10 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
-             ontouchstart="simKey('d', true)" ontouchend="simKey('d', false)" onmousedown="simKey('d', true)" onmouseup="simKey('d', false)">D</div>
-    </div>
+    <!-- Virtual Joystick Container -->
+    <div id="joystick-zone"></div>
 
     <script>
-        // Key Simulator for iPad
-        function simKey(key, isPressed) {
-            if(event && event.type.includes('touch')) event.preventDefault();
-            keys[key] = isPressed;
-        }
-
         // Game State
         let score = 0;
         let correctAnswer = 0;
@@ -66,7 +55,10 @@
         let isFrozen = false;
         let hyperdriveTimer = null;
         let freezeInterval = null;
-        const keys = { w: false, a: false, s: false, d: false };
+        
+        // Movement State
+        const moveVector = { forward: 0, right: 0 };
+        const lookVector = { x: 0, y: 0 };
 
         // 3D Setup
         const scene = new THREE.Scene();
@@ -76,10 +68,8 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.getElementById('game-container').appendChild(renderer.domElement);
 
-        // Lighting (Brighter space)
-        scene.add(new THREE.AmbientLight(0x404040, 2)); // Stronger ambient
-        
-        // Giant Suns
+        // Lighting & Suns
+        scene.add(new THREE.AmbientLight(0x404040, 2));
         const createSun = (color, x, y, z) => {
             const sunGeo = new THREE.SphereGeometry(20, 32, 32);
             const sunMat = new THREE.MeshBasicMaterial({ color: color });
@@ -90,8 +80,8 @@
             light.position.set(x, y, z);
             scene.add(light);
         };
-        createSun(0xffaa00, -100, 50, -200); // Orange Sun
-        createSun(0x00aaff, 150, -50, -300); // Blue Sun
+        createSun(0xffaa00, -100, 50, -200);
+        createSun(0x00aaff, 150, -50, -300);
 
         // Asteroids & Crystals
         const asteroids = [];
@@ -102,14 +92,12 @@
         const cryMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
 
         for (let i = 0; i < 200; i++) {
-            // Standard Asteroids
             const asteroid = new THREE.Mesh(astGeo, astMat);
             asteroid.position.set((Math.random() - 0.5) * 500, (Math.random() - 0.5) * 500, (Math.random() - 0.5) * 500);
             asteroid.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
             scene.add(asteroid);
             asteroids.push(asteroid);
 
-            // Hyper-Crystals (Fewer of them)
             if (i % 5 === 0) {
                 const crystal = new THREE.Mesh(cryGeo, cryMat);
                 crystal.position.set((Math.random() - 0.5) * 500, (Math.random() - 0.5) * 500, (Math.random() - 0.5) * 500);
@@ -132,7 +120,7 @@
         function generateQuestion() {
             let num1 = Math.floor(Math.random() * 20) + 1;
             let num2 = Math.floor(Math.random() * 10) + 1;
-            if (Math.random() > 0.5) [num1, num2] = [num2, num1]; // Swap randomly
+            if (Math.random() > 0.5) [num1, num2] = [num2, num1];
 
             correctAnswer = num1 * num2;
             document.getElementById('question').innerText = `${num1} × ${num2} = ?`;
@@ -148,10 +136,10 @@
 
             const optionsDiv = document.getElementById('options');
             optionsDiv.innerHTML = '';
-            options.forEach((opt, index) => {
+            options.forEach(opt => {
                 const btn = document.createElement('button');
-                btn.className = "bg-cyan-700 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded border border-cyan-400";
-                btn.innerText = `[${index + 1}]  ${opt}`;
+                btn.className = "bg-cyan-700 hover:bg-cyan-500 active:bg-cyan-300 text-white font-bold py-3 px-4 rounded border border-cyan-400 touch-manipulation";
+                btn.innerText = opt;
                 btn.onclick = () => checkAnswer(opt);
                 optionsDiv.appendChild(btn);
             });
@@ -159,7 +147,6 @@
 
         function checkAnswer(answer) {
             if (isFrozen) return;
-
             if (answer === correctAnswer) {
                 score++;
                 document.getElementById('score').innerText = score;
@@ -172,13 +159,12 @@
             }
         }
 
-        // Penalty Logic
+        // Freeze Penalty
         function activateFreeze() {
             isFrozen = true;
             document.getElementById('freeze-warning').classList.remove('hidden');
             let timeLeft = 10;
             document.getElementById('freeze-timer').innerText = timeLeft;
-            
             if (freezeInterval) clearInterval(freezeInterval);
             freezeInterval = setInterval(() => {
                 timeLeft--;
@@ -192,7 +178,7 @@
             }, 1000);
         }
 
-        // Hyperdrive Logic
+        // Hyperdrive
         function activateHyperdrive() {
             isHyperdrive = true;
             document.getElementById('hyperdrive-status').classList.remove('hidden');
@@ -205,51 +191,78 @@
             }, 5000);
         }
 
-        // Keyboard Input bridging
-        window.addEventListener('keydown', (e) => {
-            if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true;
-            if (['1','2','3','4'].includes(e.key)) {
-                const buttons = document.getElementById('options').getElementsByTagName('button');
-                if (buttons[parseInt(e.key) - 1]) buttons[parseInt(e.key) - 1].click();
-            }
-        });
-        window.addEventListener('keyup', (e) => {
-            if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false;
+        // Virtual Joystick Setup
+        const joystickManager = nipplejs.create({
+            zone: document.getElementById('joystick-zone'),
+            mode: 'static',
+            position: { left: '50%', top: '50%' },
+            color: 'cyan'
         });
 
-        // Animation & Flight Loop
+        joystickManager.on('move', (evt, data) => {
+            if (!isFrozen) {
+                moveVector.forward = Math.sin(data.angle.radian) * data.distance * 0.02;
+                moveVector.right = Math.cos(data.angle.radian) * data.distance * 0.02;
+            }
+        });
+
+        joystickManager.on('end', () => {
+            moveVector.forward = 0;
+            moveVector.right = 0;
+        });
+
+        // Touch Look Controls
+        let isDragging = false;
+        let previousTouch = null;
+        const lookZone = document.getElementById('look-zone');
+
+        lookZone.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            previousTouch = { x: e.touches[0].pageX, y: e.touches[0].pageY };
+        });
+
+        lookZone.addEventListener('touchmove', (e) => {
+            if (isDragging && previousTouch && !isFrozen) {
+                const deltaX = e.touches[0].pageX - previousTouch.x;
+                const deltaY = e.touches[0].pageY - previousTouch.y;
+                camera.rotation.y -= deltaX * 0.005;
+                camera.rotation.x -= deltaY * 0.005;
+                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                previousTouch = { x: e.touches[0].pageX, y: e.touches[0].pageY };
+            }
+        });
+
+        lookZone.addEventListener('touchend', () => isDragging = false);
+
+        // Flight Loop
         const direction = new THREE.Vector3();
+        const rightVector = new THREE.Vector3();
+        
         function animate() {
             requestAnimationFrame(animate);
 
-            // Rotate objects
             crystals.forEach(c => c.rotation.y += 0.05);
             asteroids.forEach(a => a.rotation.x += 0.005);
 
             if (!isFrozen) {
-                const speed = isHyperdrive ? 3.0 : 0.5;
+                const speedMult = isHyperdrive ? 3.0 : 0.5;
                 if (isHyperdrive) {
                     camera.fov = THREE.MathUtils.lerp(camera.fov, 100, 0.1);
                     camera.updateProjectionMatrix();
                 }
 
-                // Flight mechanics
                 camera.getWorldDirection(direction);
-                if (keys.w) camera.position.addScaledVector(direction, speed);
-                if (keys.s) camera.position.addScaledVector(direction, -speed);
-                
-                // Simplified rotation for A/D turning
-                if (keys.a) camera.rotation.y += 0.03;
-                if (keys.d) camera.rotation.y -= 0.03;
+                rightVector.crossVectors(camera.up, direction).normalize();
 
-                // Crystal Collision Detection
+                if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
+                if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
+
                 if (isHyperdrive) {
-                    crystals.forEach((crystal, index) => {
+                    crystals.forEach((crystal) => {
                         if (crystal.visible && camera.position.distanceTo(crystal.position) < 15) {
                             crystal.visible = false;
                             score++;
                             document.getElementById('score').innerText = score;
-                            // Respawn crystal somewhere else
                             setTimeout(() => {
                                 crystal.position.set(camera.position.x + (Math.random()-0.5)*200, camera.position.y + (Math.random()-0.5)*200, camera.position.z - 100);
                                 crystal.visible = true;
