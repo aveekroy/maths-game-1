@@ -6,16 +6,20 @@
     <title>Ayansh's Space Math Adventure</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Nipple.js for Virtual Joysticks -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; touch-action: none; user-select: none; }
         .crystal-glow { text-shadow: 0 0 10px #ff0, 0 0 20px #ff0; }
         .freeze-warning { animation: flash 1s infinite alternate; }
         @keyframes flash { from { opacity: 0.5; color: red; } to { opacity: 1; color: yellow; } }
-        /* Separate zones for dual joysticks */
+        
+        /* Joystick Zones */
         #joystick-zone-move { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 50; }
         #joystick-zone-look { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 150px; z-index: 50; }
+        
+        /* Split Options Zones */
+        #options-left { position: absolute; bottom: 180px; left: 20px; width: 150px; z-index: 60; display: flex; flex-direction: column; gap: 8px; }
+        #options-right { position: absolute; bottom: 180px; right: 20px; width: 150px; z-index: 60; display: flex; flex-direction: column; gap: 8px; }
     </style>
 </head>
 <body class="text-white font-sans">
@@ -35,14 +39,15 @@
         <p class="text-xl text-gray-200 mt-2">Thrusters locked for <span id="freeze-timer">10</span> seconds...</p>
     </div>
 
-    <!-- Compact Dashboard -->
-    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 bg-opacity-80 p-4 rounded-xl border border-cyan-500 z-10 text-center shadow-lg w-11/12 max-w-md pointer-events-auto">
+    <!-- Center Dashboard (Now just for the question) -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 bg-opacity-80 p-4 rounded-xl border border-cyan-500 z-10 text-center shadow-lg min-w-[200px] pointer-events-none">
         <h2 class="text-sm text-gray-400 mb-1">TARGET COORDINATES</h2>
-        <div id="question" class="text-3xl font-bold text-yellow-300 mb-3">Loading...</div>
-        <div id="options" class="grid grid-cols-2 gap-2">
-            <!-- Options injected here -->
-        </div>
+        <div id="question" class="text-4xl font-bold text-yellow-300">Loading...</div>
     </div>
+
+    <!-- Split Quick-Action Buttons -->
+    <div id="options-left"></div>
+    <div id="options-right"></div>
 
     <!-- Virtual Joystick Containers -->
     <div id="joystick-zone-move"></div>
@@ -84,13 +89,12 @@
         createSun(0xffaa00, -100, 50, -200);
         createSun(0x00aaff, 150, -50, -300);
 
-        // Asteroids & Yellow Crystals
+        // Asteroids & Yellow Solid Crystals
         const asteroids = [];
         const crystals = [];
         const astGeo = new THREE.DodecahedronGeometry(5, 1);
         const astMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8 });
         const cryGeo = new THREE.OctahedronGeometry(2);
-        // Changed to MeshStandardMaterial to make it a solid object that interacts with the lighting
         const cryMat = new THREE.MeshStandardMaterial({ color: 0xffff00, metalness: 0.5, roughness: 0.2, emissive: 0x444400 });
 
         for (let i = 0; i < 200; i++) {
@@ -136,14 +140,23 @@
             }
             options.sort(() => Math.random() - 0.5);
 
-            const optionsDiv = document.getElementById('options');
-            optionsDiv.innerHTML = '';
-            options.forEach(opt => {
+            const optionsLeftDiv = document.getElementById('options-left');
+            const optionsRightDiv = document.getElementById('options-right');
+            optionsLeftDiv.innerHTML = '';
+            optionsRightDiv.innerHTML = '';
+
+            options.forEach((opt, index) => {
                 const btn = document.createElement('button');
-                btn.className = "bg-cyan-700 hover:bg-cyan-500 active:bg-cyan-300 text-white font-bold py-3 px-4 rounded border border-cyan-400 touch-manipulation z-50 relative";
+                btn.className = "bg-cyan-700 bg-opacity-90 hover:bg-cyan-500 active:bg-cyan-300 text-white font-bold py-3 px-4 rounded-xl border-2 border-cyan-400 touch-manipulation shadow-lg text-xl";
                 btn.innerText = opt;
                 btn.onclick = () => checkAnswer(opt);
-                optionsDiv.appendChild(btn);
+                
+                // Route the first two options to the left stick, and the next two to the right stick
+                if (index < 2) {
+                    optionsLeftDiv.appendChild(btn);
+                } else {
+                    optionsRightDiv.appendChild(btn);
+                }
             });
         }
 
@@ -223,7 +236,6 @@
 
         lookJoystick.on('move', (evt, data) => {
             if (!isFrozen) {
-                // Determine rotation speed based on joystick push distance
                 lookVector.x = Math.cos(data.angle.radian) * data.distance * 0.0005;
                 lookVector.y = Math.sin(data.angle.radian) * data.distance * 0.0005;
             }
@@ -251,15 +263,14 @@
                     camera.updateProjectionMatrix();
                 }
 
-                // Handle Camera Rotation (Right Joystick)
+                // Handle Camera Rotation
                 if (lookVector.x !== 0 || lookVector.y !== 0) {
                     camera.rotation.y -= lookVector.x;
                     camera.rotation.x += lookVector.y;
-                    // Clamp looking straight up or down so the camera doesn't flip over
                     camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
                 }
 
-                // Handle Movement (Left Joystick)
+                // Handle Movement 
                 camera.getWorldDirection(direction);
                 rightVector.crossVectors(direction, camera.up).normalize();
 
