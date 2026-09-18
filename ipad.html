@@ -13,14 +13,14 @@
         .crystal-glow { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
         .freeze-warning { animation: flash 1s infinite alternate; }
         @keyframes flash { from { opacity: 0.5; color: red; } to { opacity: 1; color: yellow; } }
-        #joystick-zone { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 50; }
-        #look-zone { position: absolute; top: 0; right: 0; width: 50%; height: 100%; z-index: 5; }
+        /* Separate zones for dual joysticks */
+        #joystick-zone-move { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 50; }
+        #joystick-zone-look { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 150px; z-index: 50; }
     </style>
 </head>
 <body class="text-white font-sans">
 
     <div id="game-container" class="absolute inset-0"></div>
-    <div id="look-zone"></div> <!-- Swipe area for camera rotation -->
 
     <!-- UI Overlay -->
     <div class="absolute top-4 left-4 z-10 pointer-events-none">
@@ -36,7 +36,7 @@
     </div>
 
     <!-- Compact Dashboard -->
-    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 bg-opacity-80 p-4 rounded-xl border border-cyan-500 z-10 text-center shadow-lg w-11/12 max-w-md">
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 bg-opacity-80 p-4 rounded-xl border border-cyan-500 z-10 text-center shadow-lg w-11/12 max-w-md pointer-events-auto">
         <h2 class="text-sm text-gray-400 mb-1">TARGET COORDINATES</h2>
         <div id="question" class="text-3xl font-bold text-yellow-300 mb-3">Loading...</div>
         <div id="options" class="grid grid-cols-2 gap-2">
@@ -44,8 +44,9 @@
         </div>
     </div>
 
-    <!-- Virtual Joystick Container -->
-    <div id="joystick-zone"></div>
+    <!-- Virtual Joystick Containers -->
+    <div id="joystick-zone-move"></div>
+    <div id="joystick-zone-look"></div>
 
     <script>
         // Game State
@@ -138,7 +139,7 @@
             optionsDiv.innerHTML = '';
             options.forEach(opt => {
                 const btn = document.createElement('button');
-                btn.className = "bg-cyan-700 hover:bg-cyan-500 active:bg-cyan-300 text-white font-bold py-3 px-4 rounded border border-cyan-400 touch-manipulation";
+                btn.className = "bg-cyan-700 hover:bg-cyan-500 active:bg-cyan-300 text-white font-bold py-3 px-4 rounded border border-cyan-400 touch-manipulation z-50 relative";
                 btn.innerText = opt;
                 btn.onclick = () => checkAnswer(opt);
                 optionsDiv.appendChild(btn);
@@ -191,48 +192,46 @@
             }, 5000);
         }
 
-        // Virtual Joystick Setup
-        const joystickManager = nipplejs.create({
-            zone: document.getElementById('joystick-zone'),
+        // Left Joystick (Movement)
+        const moveJoystick = nipplejs.create({
+            zone: document.getElementById('joystick-zone-move'),
             mode: 'static',
             position: { left: '50%', top: '50%' },
             color: 'cyan'
         });
 
-        joystickManager.on('move', (evt, data) => {
+        moveJoystick.on('move', (evt, data) => {
             if (!isFrozen) {
                 moveVector.forward = Math.sin(data.angle.radian) * data.distance * 0.02;
                 moveVector.right = Math.cos(data.angle.radian) * data.distance * 0.02;
             }
         });
 
-        joystickManager.on('end', () => {
+        moveJoystick.on('end', () => {
             moveVector.forward = 0;
             moveVector.right = 0;
         });
 
-        // Touch Look Controls
-        let isDragging = false;
-        let previousTouch = null;
-        const lookZone = document.getElementById('look-zone');
-
-        lookZone.addEventListener('touchstart', (e) => {
-            isDragging = true;
-            previousTouch = { x: e.touches[0].pageX, y: e.touches[0].pageY };
+        // Right Joystick (Look / Camera Rotation)
+        const lookJoystick = nipplejs.create({
+            zone: document.getElementById('joystick-zone-look'),
+            mode: 'static',
+            position: { right: '50%', top: '50%' },
+            color: 'yellow' // Yellow color to differentiate from movement
         });
 
-        lookZone.addEventListener('touchmove', (e) => {
-            if (isDragging && previousTouch && !isFrozen) {
-                const deltaX = e.touches[0].pageX - previousTouch.x;
-                const deltaY = e.touches[0].pageY - previousTouch.y;
-                camera.rotation.y -= deltaX * 0.005;
-                camera.rotation.x -= deltaY * 0.005;
-                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
-                previousTouch = { x: e.touches[0].pageX, y: e.touches[0].pageY };
+        lookJoystick.on('move', (evt, data) => {
+            if (!isFrozen) {
+                // Determine rotation speed based on joystick push distance
+                lookVector.x = Math.cos(data.angle.radian) * data.distance * 0.0005;
+                lookVector.y = Math.sin(data.angle.radian) * data.distance * 0.0005;
             }
         });
 
-        lookZone.addEventListener('touchend', () => isDragging = false);
+        lookJoystick.on('end', () => {
+            lookVector.x = 0;
+            lookVector.y = 0;
+        });
 
         // Flight Loop
         const direction = new THREE.Vector3();
@@ -251,8 +250,17 @@
                     camera.updateProjectionMatrix();
                 }
 
+                // Handle Camera Rotation (Right Joystick)
+                if (lookVector.x !== 0 || lookVector.y !== 0) {
+                    camera.rotation.y -= lookVector.x;
+                    camera.rotation.x += lookVector.y;
+                    // Clamp looking straight up or down so the camera doesn't flip over
+                    camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                }
+
+                // Handle Movement (Left Joystick)
                 camera.getWorldDirection(direction);
-                // rightVector.crossVectors(camera.up, direction).normalize();
+                // Fixed the cross product calculation here so left/right movement is accurate!
                 rightVector.crossVectors(direction, camera.up).normalize();
 
                 if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
