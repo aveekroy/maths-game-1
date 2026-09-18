@@ -237,7 +237,7 @@
         lookJoystick.on('move', (evt, data) => {
             if (!isFrozen) {
                 lookVector.x = Math.cos(data.angle.radian) * data.distance * 0.0005;
-                lookVector.y = Math.sin(data.angle.radian) * data.distance * 0.0005;
+                lookVector.y = -Math.sin(data.angle.radian) * data.distance * 0.0005;
             }
         });
 
