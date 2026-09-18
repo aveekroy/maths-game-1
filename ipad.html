@@ -10,7 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; touch-action: none; user-select: none; }
-        .crystal-glow { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
+        .crystal-glow { text-shadow: 0 0 10px #ff0, 0 0 20px #ff0; }
         .freeze-warning { animation: flash 1s infinite alternate; }
         @keyframes flash { from { opacity: 0.5; color: red; } to { opacity: 1; color: yellow; } }
         /* Separate zones for dual joysticks */
@@ -84,13 +84,14 @@
         createSun(0xffaa00, -100, 50, -200);
         createSun(0x00aaff, 150, -50, -300);
 
-        // Asteroids & Crystals
+        // Asteroids & Yellow Crystals
         const asteroids = [];
         const crystals = [];
         const astGeo = new THREE.DodecahedronGeometry(5, 1);
         const astMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8 });
         const cryGeo = new THREE.OctahedronGeometry(2);
-        const cryMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
+        // Changed crystal color to Yellow (0xffff00)
+        const cryMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
 
         for (let i = 0; i < 200; i++) {
             const asteroid = new THREE.Mesh(astGeo, astMat);
@@ -217,7 +218,7 @@
             zone: document.getElementById('joystick-zone-look'),
             mode: 'static',
             position: { right: '50%', top: '50%' },
-            color: 'yellow' // Yellow color to differentiate from movement
+            color: 'yellow' // Yellow color to match the crystals!
         });
 
         lookJoystick.on('move', (evt, data) => {
