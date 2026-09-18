@@ -140,6 +140,21 @@
             </div>
         </div>
 
+        <!-- Virtual Joystick UI (Place inside the <body> tag) -->
+        <div id="virtual-joystick" class="fixed bottom-8 left-8 w-40 h-40 bg-slate-800 bg-opacity-60 rounded-full flex items-center justify-center select-none z-50">
+          <div class="absolute top-2 w-12 h-12 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
+               ontouchstart="simulateKey('w', true)" ontouchend="simulateKey('w', false)" onmousedown="simulateKey('w', true)" onmouseup="simulateKey('w', false)">W</div>
+          
+          <div class="absolute bottom-2 w-12 h-12 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
+               ontouchstart="simulateKey('s', true)" ontouchend="simulateKey('s', false)" onmousedown="simulateKey('s', true)" onmouseup="simulateKey('s', false)">S</div>
+          
+          <div class="absolute left-2 w-12 h-12 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
+               ontouchstart="simulateKey('a', true)" ontouchend="simulateKey('a', false)" onmousedown="simulateKey('a', true)" onmouseup="simulateKey('a', false)">A</div>
+          
+          <div class="absolute right-2 w-12 h-12 bg-cyan-500 rounded-full opacity-80 flex items-center justify-center text-white font-bold" 
+               ontouchstart="simulateKey('d', true)" ontouchend="simulateKey('d', false)" onmousedown="simulateKey('d', true)" onmouseup="simulateKey('d', false)">D</div>
+        </div>
+
         <!-- Math Question Area -->
         <div id="gameplay-ui" class="w-full flex flex-col items-center pb-4 hidden absolute bottom-0">
             <div id="question-container" class="bg-slate-900/30 backdrop-blur-md rounded-2xl p-4 border border-cyan-500/40 glow-box max-w-sm w-11/12 mx-auto pointer-events-auto">
@@ -252,6 +267,23 @@
             ui.gameplay.classList.add('hidden');
             ui.startBtn.innerText = "RESUME FLIGHT";
         });
+
+        // Touch to Keyboard Event Bridge (Place inside your <script> tag)
+        function simulateKey(key, isPressed) {
+            // Prevents the screen from zooming or scrolling when mashing buttons on iPad
+            if(event && event.type === 'touchstart') {
+                event.preventDefault(); 
+            }
+            
+            // Creates a synthetic keyboard event that your existing WASD game loop will catch
+            const keyboardEvent = new KeyboardEvent(isPressed ? 'keydown' : 'keyup', {
+                key: key,
+                code: 'Key' + key.toUpperCase(),
+                bubbles: true
+            });
+            
+            document.dispatchEvent(keyboardEvent);
+        }
 
         function createEnvironment() {
             // Starfield
