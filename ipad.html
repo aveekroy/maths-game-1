@@ -29,7 +29,7 @@
     <!-- UI Overlay -->
     <div class="absolute top-4 left-4 z-10 pointer-events-none">
         <h1 class="text-2xl font-bold text-cyan-400">Score: <span id="score">0</span></h1>
-        <p id="hyperdrive-status" class="text-green-400 font-bold hidden text-xl mt-2">HYPERDRIVE ACTIVE!</p>
+        <p id="hyperdrive-status" class="text-green-400 font-bold hidden text-xl mt-2">HYPERDRIVE ACTIVE! (2X POINTS)</p>
     </div>
     
     <!-- Flight Timer -->
@@ -77,21 +77,22 @@
 
         // 3D Setup
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000011, 0.003); 
+        // Slightly lighter and thinner fog to increase visibility
+        scene.fog = new THREE.FogExp2(0x000018, 0.0025); 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.getElementById('game-container').appendChild(renderer.domElement);
 
-        // Lighting 
-        scene.add(new THREE.AmbientLight(0x111122, 0.3)); 
+        // Lighting (Increased ambient and point light intensity)
+        scene.add(new THREE.AmbientLight(0x222233, 0.6)); 
         const createSun = (color, x, y, z) => {
             const sunGeo = new THREE.SphereGeometry(20, 32, 32);
             const sunMat = new THREE.MeshBasicMaterial({ color: color });
             const sun = new THREE.Mesh(sunGeo, sunMat);
             sun.position.set(x, y, z);
             scene.add(sun);
-            const light = new THREE.PointLight(color, 2, 400); 
+            const light = new THREE.PointLight(color, 3.5, 500); 
             light.position.set(x, y, z);
             scene.add(light);
         };
@@ -345,6 +346,8 @@
             // Only move if not frozen and not answering a question
             if (!isFrozen && !isQuestionActive) {
                 const speedMult = isHyperdrive ? 3.0 : 0.5;
+                
+                // Handle dynamic FOV
                 if (isHyperdrive) {
                     camera.fov = THREE.MathUtils.lerp(camera.fov, 100, 0.1);
                     camera.updateProjectionMatrix();
@@ -367,19 +370,27 @@
                 if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
                 if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
 
-                if (isHyperdrive) {
-                    crystals.forEach((crystal) => {
-                        if (crystal.visible && camera.position.distanceTo(crystal.position) < 15) {
-                            crystal.visible = false;
-                            score++;
-                            document.getElementById('score').innerText = score;
-                            setTimeout(() => {
-                                crystal.position.set(camera.position.x + (Math.random()-0.5)*400, camera.position.y + (Math.random()-0.5)*400, camera.position.z - 200);
-                                crystal.visible = true;
-                            }, 2000);
+                // Crystal Collection (Now always active during free flight)
+                crystals.forEach((crystal) => {
+                    if (crystal.visible && camera.position.distanceTo(crystal.position) < 15) {
+                        crystal.visible = false;
+                        
+                        // Award 2 points in hyperdrive, 1 point normally
+                        if (isHyperdrive) {
+                            score += 2;
+                        } else {
+                            score += 1;
                         }
-                    });
-                }
+                        
+                        document.getElementById('score').innerText = score;
+                        
+                        // Respawn crystal somewhere else
+                        setTimeout(() => {
+                            crystal.position.set(camera.position.x + (Math.random()-0.5)*400, camera.position.y + (Math.random()-0.5)*400, camera.position.z - 200);
+                            crystal.visible = true;
+                        }, 2000);
+                    }
+                });
             }
             renderer.render(scene, camera);
         }
@@ -390,7 +401,7 @@
             camera.updateProjectionMatrix();
         });
 
-        // Start animation loop (Game begins in free flight mode)
+        // Start animation loop
         animate();
     </script>
 </body>
