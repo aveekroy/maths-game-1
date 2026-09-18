@@ -252,7 +252,8 @@
                 }
 
                 camera.getWorldDirection(direction);
-                rightVector.crossVectors(camera.up, direction).normalize();
+                // rightVector.crossVectors(camera.up, direction).normalize();
+                rightVector.crossVectors(direction, camera.up).normalize();
 
                 if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
                 if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
