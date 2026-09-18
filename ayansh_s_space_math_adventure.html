@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ayansh's Space Math Adventure</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #02020a;
+            user-select: none;
+            -webkit-user-select: none;
+            color: white;
+        }
+        h1, h2, .orbitron { font-family: 'Orbitron', sans-serif; }
+        
+        #game-canvas {
+            display: block; width: 100vw; height: 100vh;
+            position: absolute; top: 0; left: 0; z-index: 1;
+        }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 24px; font-weight: bold;
+            z-index: 20; pointer-events: none;
+            text-shadow: 0 0 5px cyan;
+        }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 10; pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .interactive { pointer-events: auto; }
+        
+        /* Options Styling */
+        .math-option {
+            background: linear-gradient(135deg, rgba(13, 148, 136, 0.4), rgba(8, 145, 178, 0.4));
+            border: 1px solid rgba(34, 211, 238, 0.6);
+            border-bottom: 3px solid rgba(8, 145, 178, 0.6);
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(34, 211, 238, 0.2);
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+            backdrop-filter: blur(4px);
+        }
+        .math-option.wrong {
+            background: linear-gradient(135deg, rgba(220, 38, 38, 0.4), rgba(153, 27, 27, 0.4)) !important;
+            border-color: rgba(248, 113, 113, 0.6) !important; border-bottom: 3px solid rgba(153, 27, 27, 0.6) !important;
+            box-shadow: 0 0 10px rgba(248, 113, 113, 0.3) !important;
+        }
+
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .shake { animation: shake 0.4s; }
+
+        /* Speed & Warp Effects */
+        .speed-lines {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle, transparent 20%, rgba(34, 211, 238, 0.3) 80%, rgba(255,255,255,0.6) 100%);
+            opacity: 0; pointer-events: none; z-index: 5;
+            transition: opacity 0.5s ease; mix-blend-mode: screen;
+        }
+
+        .correct-flash { animation: flashCyan 0.4s forwards; }
+        @keyframes flashCyan {
+            0% { box-shadow: inset 0 0 0 0px rgba(34, 211, 238, 0); }
+            50% { box-shadow: inset 0 0 150px 50px rgba(34, 211, 238, 0.5); }
+            100% { box-shadow: inset 0 0 0 0px rgba(34, 211, 238, 0); }
+        }
+        
+        .glow-text-cyan { text-shadow: 0 0 10px #22d3ee, 0 0 20px #0891b2; }
+        .glow-text-fuchsia { text-shadow: 0 0 10px #f0abfc, 0 0 20px #c026d3; }
+        .glow-text-yellow { text-shadow: 0 0 10px #facc15, 0 0 20px #eab308; }
+        .glow-text-red { text-shadow: 0 0 10px #ef4444, 0 0 20px #b91c1c; }
+        .glow-box { box-shadow: 0 0 20px rgba(34, 211, 238, 0.3), inset 0 0 20px rgba(34, 211, 238, 0.1); }
+        
+        .freeze-overlay { animation: flashRed 0.5s infinite alternate; }
+        @keyframes flashRed {
+            0% { box-shadow: inset 0 0 0px 0px rgba(239, 68, 68, 0); }
+            100% { box-shadow: inset 0 0 150px 20px rgba(239, 68, 68, 0.4); }
+        }
+        
+        #nitro-bar-container {
+            width: 100%; height: 8px; background: rgba(0,0,0,0.5);
+            border-radius: 4px; overflow: hidden; margin-top: 10px;
+            display: none;
+        }
+        #nitro-bar {
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, #00ffff, #ff00ff);
+            box-shadow: 0 0 10px #00ffff;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-canvas"></div>
+    <div id="crosshair">✛</div>
+    <div class="speed-lines" id="speed-lines"></div>
+
+    <div id="ui-layer">
+        <!-- Top HUD -->
+        <div class="flex flex-col items-center p-4 md:p-6 w-full">
+            <div class="flex justify-between w-full">
+                <div class="bg-slate-900/80 backdrop-blur rounded-2xl p-3 border border-cyan-500 glow-box">
+                    <h2 class="text-xl md:text-2xl font-bold text-cyan-400 orbitron tracking-wider">SCORE: <span id="score" class="text-white">0</span></h2>
+                </div>
+                <div class="bg-slate-900/80 backdrop-blur rounded-2xl p-3 border border-slate-600 text-center glow-box">
+                    <p class="text-sm font-bold text-slate-300">WASD: 3D Thrusters<br>Mouse: Look Around</p>
+                </div>
+            </div>
+            <!-- Nitro Indicator -->
+            <div id="nitro-alert" class="mt-4 orbitron text-3xl font-bold text-fuchsia-400 glow-text-fuchsia hidden">
+                HYPERDRIVE ACTIVE!
+                <div id="nitro-bar-container"><div id="nitro-bar"></div></div>
+            </div>
+            <!-- Freeze Alert -->
+            <div id="freeze-alert" class="mt-4 orbitron text-4xl font-bold text-red-500 glow-text-red hidden text-center">
+                SYSTEM FROZEN!<br><span class="text-2xl text-red-300">Rebooting in <span id="freeze-time">10.0</span>s</span>
+            </div>
+            <!-- Bonus Crystal Alert -->
+            <div id="bonus-alert" class="mt-2 orbitron text-2xl font-bold text-yellow-400 glow-text-yellow opacity-0 transition-all duration-300">
+                +1 HYPER-CRYSTAL!
+            </div>
+        </div>
+
+        <!-- Math Question Area -->
+        <div id="gameplay-ui" class="w-full flex flex-col items-center pb-4 hidden absolute bottom-0">
+            <div id="question-container" class="bg-slate-900/30 backdrop-blur-md rounded-2xl p-4 border border-cyan-500/40 glow-box max-w-sm w-11/12 mx-auto pointer-events-auto">
+                <h1 id="question-text" class="text-3xl md:text-4xl font-bold text-white tracking-widest mb-2 text-center glow-text-cyan">
+                    ? x ? =
+                </h1>
+                <p class="text-center text-cyan-300 font-bold mb-2 text-xs uppercase tracking-widest orbitron opacity-80">Select Target (Keys 1-4)</p>
+                <!-- Options -->
+                <div class="grid grid-cols-2 gap-2 w-full" id="options-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Welcome Screen -->
+    <div id="welcome-screen" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-4 interactive bg-slate-900/95 backdrop-blur-md">
+        <div class="bg-slate-900 rounded-3xl p-8 md:p-12 border-4 border-cyan-500 text-center max-w-3xl w-full glow-box">
+            <h1 class="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 mb-4 orbitron uppercase tracking-wider glow-text-fuchsia">
+                Ayansh's Space Math
+            </h1>
+            <p class="text-2xl text-cyan-200 mb-8 font-bold">Solve to trigger HYPERDRIVE!</p>
+            
+            <div class="grid grid-cols-2 gap-4 text-left bg-slate-800 p-6 rounded-xl mb-8 border border-slate-600 text-lg">
+                <div><span class="font-bold text-cyan-400 orbitron">W, A, S, D:</span> True 3D Flight</div>
+                <div><span class="font-bold text-cyan-400 orbitron">Mouse:</span> Aim Ship</div>
+                <div><span class="font-bold text-cyan-400 orbitron">1, 2, 3, 4:</span> Answer Question</div>
+                <div><span class="font-bold text-cyan-400 orbitron">Esc:</span> Pause Game</div>
+            </div>
+            
+            <button id="start-btn" class="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white orbitron font-bold text-3xl py-5 px-14 rounded-full border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all shadow-[0_0_20px_rgba(34,211,238,0.5)]">
+                LAUNCH
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Game State
+        let score = 0;
+        let currentAnswer = 0;
+        let currentOptions = [];
+        
+        // Hyperdrive State
+        let isHyperdrive = false;
+        let hyperdriveTimer = 0;
+        const HYPERDRIVE_DURATION = 5.0; // 5 seconds
+        const NORMAL_FOV = 75;
+        const HYPERDRIVE_FOV = 110;
+        const NORMAL_SPEED = 400.0;
+        const HYPERDRIVE_SPEED = 2500.0; // Massive boost
+        
+        // Freeze State
+        let isFrozen = false;
+        let freezeTimer = 0;
+        const FREEZE_DURATION = 10.0;
+        
+        // Flight Mechanics
+        const velocity = new THREE.Vector3();
+        let moveForward = false; let moveBackward = false;
+        let moveLeft = false; let moveRight = false;
+        let prevTime = performance.now();
+        const collidables = [];
+        const bonusCrystals = []; // Store the twinkling crystals
+
+        // UI Binding
+        const ui = {
+            welcome: document.getElementById('welcome-screen'),
+            startBtn: document.getElementById('start-btn'),
+            gameplay: document.getElementById('gameplay-ui'),
+            question: document.getElementById('question-text'),
+            options: document.getElementById('options-container'),
+            score: document.getElementById('score'),
+            container: document.getElementById('question-container'),
+            speedLines: document.getElementById('speed-lines'),
+            nitroAlert: document.getElementById('nitro-alert'),
+            nitroBarContainer: document.getElementById('nitro-bar-container'),
+            nitroBar: document.getElementById('nitro-bar'),
+            bonusAlert: document.getElementById('bonus-alert'),
+            freezeAlert: document.getElementById('freeze-alert'),
+            freezeTime: document.getElementById('freeze-time')
+        };
+
+        // Three.js Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050514); // Slightly lighter space background
+        scene.fog = new THREE.FogExp2(0x050514, 0.0008); // Reduced fog for better visibility
+
+        const camera = new THREE.PerspectiveCamera(NORMAL_FOV, window.innerWidth / window.innerHeight, 0.1, 5000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('game-canvas').appendChild(renderer.domElement);
+
+        // Lighting - Increased Ambient Light for a brighter base environment
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7)); // Increased from 0.4 to 0.7
+        const starLight = new THREE.DirectionalLight(0xffffff, 1.0); // Brighter directional light
+        starLight.position.set(1000, 2000, 1000);
+        scene.add(starLight);
+
+        // Controls
+        const controls = new THREE.PointerLockControls(camera, document.body);
+        scene.add(controls.getObject());
+
+        ui.startBtn.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => {
+            ui.welcome.classList.add('hidden');
+            ui.gameplay.classList.remove('hidden');
+            if(score === 0) startGame();
+        });
+        controls.addEventListener('unlock', () => {
+            ui.welcome.classList.remove('hidden');
+            ui.gameplay.classList.add('hidden');
+            ui.startBtn.innerText = "RESUME FLIGHT";
+        });
+
+        function createEnvironment() {
+            // Starfield
+            const starsGeo = new THREE.BufferGeometry();
+            const starsVertices = [];
+            for(let i=0; i<15000; i++) {
+                starsVertices.push(
+                    THREE.MathUtils.randFloatSpread(8000),
+                    THREE.MathUtils.randFloatSpread(8000),
+                    THREE.MathUtils.randFloatSpread(8000)
+                );
+            }
+            starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+            scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({color: 0xffffff, size: 2.0})));
+
+            // Giant Glowing Suns to illuminate space
+            const createSun = (x, y, z, color, size, intensity) => {
+                // Core of the sun
+                const sunGeo = new THREE.SphereGeometry(size, 32, 32);
+                const sunMat = new THREE.MeshBasicMaterial({ color: color }); // Unaffected by lights, always bright
+                const sun = new THREE.Mesh(sunGeo, sunMat);
+                sun.position.set(x, y, z);
+                scene.add(sun);
+                
+                // Light emitted from the sun
+                const sunLight = new THREE.PointLight(color, intensity, 5000);
+                sunLight.position.set(x, y, z);
+                scene.add(sunLight);
+                
+                // Glowing Halo effect
+                const haloGeo = new THREE.SphereGeometry(size * 1.6, 32, 32);
+                const haloMat = new THREE.MeshBasicMaterial({ 
+                    color: color, 
+                    transparent: true, 
+                    opacity: 0.15, 
+                    blending: THREE.AdditiveBlending 
+                });
+                const halo = new THREE.Mesh(haloGeo, haloMat);
+                halo.position.set(x, y, z);
+                scene.add(halo);
+            };
+
+            // Add 3 large suns in different directions
+            createSun(2000, 1000, -2000, 0xffdd88, 300, 2.5); // Warm Yellow/Orange
+            createSun(-2500, -1000, 1500, 0xccffff, 400, 3.0); // Bright Blue/White
+            createSun(500, -2000, 2500, 0xffaadd, 250, 2.0); // Pinkish Sun
+
+            // Asteroids
+            const asteroidGeo = new THREE.DodecahedronGeometry(1, 1);
+            const asteroidMat = new THREE.MeshStandardMaterial({ color: 0x666677, roughness: 0.7 });
+            for (let i = 0; i < 500; i++) {
+                let x = (Math.random() - 0.5) * 4000;
+                let y = (Math.random() - 0.5) * 4000;
+                let z = (Math.random() - 0.5) * 4000;
+                if(Math.abs(x) < 50 && Math.abs(y) < 50 && Math.abs(z) < 50) continue; // clear spawn
+
+                const asteroid = new THREE.Mesh(asteroidGeo, asteroidMat);
+                const scale = 5 + Math.random() * 20;
+                asteroid.scale.set(scale, scale, scale);
+                asteroid.position.set(x, y, z);
+                asteroid.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+                scene.add(asteroid);
+                collidables.push({ x, y, z, radius: scale * 1.2 });
+            }
+
+            // Bonus Glowing Crystals (Collectable only in Hyperdrive)
+            const crystalGeo = new THREE.OctahedronGeometry(5, 0);
+            const crystalMat = new THREE.MeshStandardMaterial({
+                color: 0xffff00,      // Yellow
+                emissive: 0xffaa00,   // Golden glow
+                emissiveIntensity: 1.0,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+
+            for (let i = 0; i < 250; i++) {
+                let x = (Math.random() - 0.5) * 4000;
+                let y = (Math.random() - 0.5) * 4000;
+                let z = (Math.random() - 0.5) * 4000;
+                if(Math.abs(x) < 100 && Math.abs(y) < 100 && Math.abs(z) < 100) continue; // clear spawn
+
+                const crystal = new THREE.Mesh(crystalGeo, crystalMat.clone()); // Clone material so they can pulse individually
+                crystal.position.set(x, y, z);
+                crystal.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+                crystal.userData = { twinklePhase: Math.random() * Math.PI * 2 }; // Random start phase for twinkling
+                
+                scene.add(crystal);
+                bonusCrystals.push(crystal);
+            }
+
+            // Planets
+            const createPlanet = (x, y, z, color, size) => {
+                const p = new THREE.Mesh(
+                    new THREE.SphereGeometry(size, 32, 32),
+                    new THREE.MeshStandardMaterial({color: color, emissive: color, emissiveIntensity: 0.3})
+                );
+                p.position.set(x, y, z);
+                scene.add(p);
+                
+                const ring = new THREE.Mesh(
+                    new THREE.RingGeometry(size * 1.3, size * 1.8, 32),
+                    new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide, transparent: true, opacity: 0.4 })
+                );
+                ring.position.set(x, y, z);
+                ring.rotation.x = Math.PI / 2.5;
+                scene.add(ring);
+            };
+            createPlanet(1000, 500, -1500, 0xff00ff, 200);
+            createPlanet(-1200, -400, 1000, 0x00ffff, 150);
+        }
+        createEnvironment();
+
+        function startGame() {
+            score = 0;
+            ui.score.innerText = score;
+            controls.getObject().position.set(0, 0, 0);
+            velocity.set(0,0,0);
+            generateQuestion();
+        }
+
+        function generateQuestion() {
+            // Logic: Max 20 x Max 10
+            let num1 = Math.floor(Math.random() * 20) + 1; // 1 to 20
+            let num2 = Math.floor(Math.random() * 10) + 1; // 1 to 10
+            
+            // Swap randomly for display (e.g. 15x8 or 8x15)
+            let a = Math.random() > 0.5 ? num1 : num2;
+            let b = a === num1 ? num2 : num1;
+
+            currentAnswer = a * b;
+            ui.question.innerText = `${a} × ${b} = ?`;
+            currentOptions = [currentAnswer];
+            
+            // Wrong answers
+            while (currentOptions.length < 4) {
+                let wrong = currentAnswer + (Math.floor(Math.random() * 21) - 10);
+                if(Math.random() > 0.5) wrong = currentAnswer + (Math.floor(Math.random()*4)-2)*a; 
+                if (wrong > 0 && wrong !== currentAnswer && !currentOptions.includes(wrong)) {
+                    currentOptions.push(wrong);
+                }
+            }
+            currentOptions.sort(() => Math.random() - 0.5);
+
+            // Render buttons
+            ui.options.innerHTML = '';
+            currentOptions.forEach((opt, index) => {
+                const div = document.createElement('div');
+                div.className = 'math-option text-white text-xl md:text-2xl font-bold py-2 md:py-3 rounded-lg flex items-center justify-center cursor-pointer relative orbitron';
+                div.id = `opt-${index+1}`;
+                div.innerHTML = `<span class="text-xs absolute top-1 left-1 text-cyan-200 bg-slate-900/50 px-1.5 py-0.5 rounded border border-cyan-500/40">[${index+1}]</span> ${opt}`;
+                ui.options.appendChild(div);
+            });
+        }
+
+        function handleAnswer(index) {
+            if(!controls.isLocked) return;
+            
+            // Cannot interact while system is frozen
+            if(isFrozen) return;
+            
+            const div = document.getElementById(`opt-${index+1}`);
+
+            if (currentOptions[index] === currentAnswer) {
+                // CORRECT!
+                score++;
+                ui.score.innerText = score;
+                
+                document.body.classList.remove('correct-flash');
+                void document.body.offsetWidth; // trigger reflow
+                document.body.classList.add('correct-flash');
+
+                triggerHyperdrive();
+                generateQuestion(); // Immediately next question!
+            } else {
+                // WRONG
+                score--; // Deduct 1 point penalty
+                ui.score.innerText = score;
+                
+                ui.container.classList.remove('shake');
+                void ui.container.offsetWidth; 
+                ui.container.classList.add('shake');
+                if(div) div.classList.add('wrong');
+                setTimeout(() => { if(div) div.classList.remove('wrong'); }, 500);
+                
+                // Trigger Freeze
+                isFrozen = true;
+                freezeTimer = FREEZE_DURATION;
+                
+                // Cancel hyperdrive if active
+                isHyperdrive = false; 
+                ui.speedLines.style.opacity = '0';
+                ui.nitroAlert.classList.add('hidden');
+                ui.nitroBarContainer.style.display = 'none';
+                
+                // Show freeze visuals and stop movement
+                ui.freezeAlert.classList.remove('hidden');
+                document.body.classList.add('freeze-overlay');
+                velocity.set(0, 0, 0); 
+                
+                // Immediately give a new question so they can prepare while frozen
+                generateQuestion();
+            }
+        }
+
+        function triggerHyperdrive() {
+            isHyperdrive = true;
+            hyperdriveTimer = HYPERDRIVE_DURATION;
+            
+            // UI Effects
+            ui.speedLines.style.opacity = '1';
+            ui.nitroAlert.classList.remove('hidden');
+            ui.nitroBarContainer.style.display = 'block';
+        }
+
+        // Controls binding
+        document.addEventListener('keydown', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Digit1': case 'Numpad1': handleAnswer(0); break;
+                case 'Digit2': case 'Numpad2': handleAnswer(1); break;
+                case 'Digit3': case 'Numpad3': handleAnswer(2); break;
+                case 'Digit4': case 'Numpad4': handleAnswer(3); break;
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        });
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            
+            if (controls.isLocked === true) {
+                const delta = (time - prevTime) / 1000;
+                
+                // Hyperdrive Management
+                let currentSpeed = NORMAL_SPEED;
+                if (isHyperdrive) {
+                    currentSpeed = HYPERDRIVE_SPEED;
+                    hyperdriveTimer -= delta;
+                    
+                    // Update UI Bar
+                    ui.nitroBar.style.width = `${(hyperdriveTimer / HYPERDRIVE_DURATION) * 100}%`;
+                    
+                    // Lerp FOV up
+                    camera.fov = THREE.MathUtils.lerp(camera.fov, HYPERDRIVE_FOV, 0.05);
+                    camera.updateProjectionMatrix();
+
+                    if (hyperdriveTimer <= 0) {
+                        isHyperdrive = false;
+                        ui.speedLines.style.opacity = '0';
+                        ui.nitroAlert.classList.add('hidden');
+                        ui.nitroBarContainer.style.display = 'none';
+                    }
+                } else {
+                    // Lerp FOV down
+                    if (camera.fov > NORMAL_FOV + 0.5) {
+                        camera.fov = THREE.MathUtils.lerp(camera.fov, NORMAL_FOV, 0.05);
+                        camera.updateProjectionMatrix();
+                    }
+                }
+
+                // Freeze Management
+                if (isFrozen) {
+                    freezeTimer -= delta;
+                    ui.freezeTime.innerText = Math.max(0, freezeTimer).toFixed(1);
+                    
+                    if (freezeTimer <= 0) {
+                        isFrozen = false;
+                        ui.freezeAlert.classList.add('hidden');
+                        document.body.classList.remove('freeze-overlay');
+                    }
+                }
+
+                // TRUE 3D FLIGHT MECHANICS
+                // Get where the camera is looking
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                
+                // Calculate right vector for strafing
+                const camRight = new THREE.Vector3();
+                camRight.crossVectors(camDir, camera.up).normalize();
+
+                // Friction / Drag in space
+                velocity.x -= velocity.x * 2.0 * delta;
+                velocity.y -= velocity.y * 2.0 * delta;
+                velocity.z -= velocity.z * 2.0 * delta;
+
+                // Apply thrust based on orientation ONLY if not frozen
+                if (!isFrozen) {
+                    if (moveForward) velocity.addScaledVector(camDir, currentSpeed * delta);
+                    if (moveBackward) velocity.addScaledVector(camDir, -currentSpeed * delta);
+                    if (moveLeft) velocity.addScaledVector(camRight, -currentSpeed * delta);
+                    if (moveRight) velocity.addScaledVector(camRight, currentSpeed * delta);
+                }
+
+                // Apply velocity to position
+                const playerPos = controls.getObject().position;
+                playerPos.addScaledVector(velocity, delta);
+
+                // Wrap map if flying too far to create infinite feel
+                if(playerPos.x > 3000) playerPos.x = -3000;
+                if(playerPos.x < -3000) playerPos.x = 3000;
+                if(playerPos.y > 3000) playerPos.y = -3000;
+                if(playerPos.y < -3000) playerPos.y = 3000;
+                if(playerPos.z > 3000) playerPos.z = -3000;
+                if(playerPos.z < -3000) playerPos.z = 3000;
+
+                // Animate and Check Collisions for Bonus Crystals
+                for (let i = 0; i < bonusCrystals.length; i++) {
+                    const crystal = bonusCrystals[i];
+                    
+                    // Twinkling / Spinning effect
+                    crystal.rotation.x += 1.5 * delta;
+                    crystal.rotation.y += 2.0 * delta;
+                    
+                    const pulse = (Math.sin(time * 0.005 + crystal.userData.twinklePhase) + 1) / 2; // oscillates 0 to 1
+                    crystal.material.emissiveIntensity = 0.5 + (pulse * 2.5); // Glow intensity pulses
+                    crystal.scale.setScalar(1.0 + pulse * 0.4); // slightly shrink and grow
+                    
+                    // Collision check ONLY if in Hyperdrive
+                    if (isHyperdrive) {
+                        const distance = playerPos.distanceTo(crystal.position);
+                        if (distance < 50) { // Collection radius (generous because we move fast)
+                            // 1. Add score
+                            score += 1;
+                            ui.score.innerText = score;
+                            
+                            // 2. Visual feedback UI
+                            ui.bonusAlert.classList.remove('opacity-0');
+                            ui.bonusAlert.style.transform = 'scale(1.1)';
+                            setTimeout(() => {
+                                ui.bonusAlert.classList.add('opacity-0');
+                                ui.bonusAlert.style.transform = 'scale(1.0)';
+                            }, 1000);
+                            
+                            // 3. Move crystal far away (respawn instead of deleting to save memory)
+                            let newX = playerPos.x + (Math.random() > 0.5 ? 1 : -1) * (1000 + Math.random() * 1000);
+                            let newY = playerPos.y + (Math.random() > 0.5 ? 1 : -1) * (1000 + Math.random() * 1000);
+                            let newZ = playerPos.z + (Math.random() > 0.5 ? 1 : -1) * (1000 + Math.random() * 1000);
+                            crystal.position.set(newX, newY, newZ);
+                        }
+                    }
+                }
+
+            } else {
+                camera.rotation.y += 0.001; // Cinematic pan
+            }
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
