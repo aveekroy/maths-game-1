@@ -467,7 +467,7 @@
 
                 if (lookVector.x !== 0 || lookVector.y !== 0) {
                     camera.rotation.y -= lookVector.x;
-                    camera.rotation.x -= lookVector.y;
+                    camera.rotation.x += lookVector.y; // fixed: was inverted (up went down and vice versa)
                     camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
                 }
 
