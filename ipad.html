@@ -90,8 +90,8 @@
         const astGeo = new THREE.DodecahedronGeometry(5, 1);
         const astMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8 });
         const cryGeo = new THREE.OctahedronGeometry(2);
-        // Changed crystal color to Yellow (0xffff00)
-        const cryMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
+        // Changed to MeshStandardMaterial to make it a solid object that interacts with the lighting
+        const cryMat = new THREE.MeshStandardMaterial({ color: 0xffff00, metalness: 0.5, roughness: 0.2, emissive: 0x444400 });
 
         for (let i = 0; i < 200; i++) {
             const asteroid = new THREE.Mesh(astGeo, astMat);
@@ -218,7 +218,7 @@
             zone: document.getElementById('joystick-zone-look'),
             mode: 'static',
             position: { right: '50%', top: '50%' },
-            color: 'yellow' // Yellow color to match the crystals!
+            color: 'yellow'
         });
 
         lookJoystick.on('move', (evt, data) => {
@@ -261,7 +261,6 @@
 
                 // Handle Movement (Left Joystick)
                 camera.getWorldDirection(direction);
-                // Fixed the cross product calculation here so left/right movement is accurate!
                 rightVector.crossVectors(direction, camera.up).normalize();
 
                 if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
