@@ -13,6 +13,17 @@
         .freeze-warning { animation: flash 1s infinite alternate; }
         @keyframes flash { from { opacity: 0.5; color: red; } to { opacity: 1; color: yellow; } }
 
+        /* Hyperdrive haze — soft blur/glow, no visible lines */
+        #game-container { transition: filter 0.4s ease; }
+        #game-container.hyperdrive-active { filter: blur(3px) brightness(1.3) saturate(1.15); }
+
+        #hyperdrive-haze-overlay {
+            position: absolute; inset: 0; z-index: 15; pointer-events: none;
+            opacity: 0; transition: opacity 0.5s ease;
+            background: radial-gradient(circle at center, rgba(180,220,255,0.35) 0%, rgba(180,220,255,0.12) 40%, transparent 70%);
+        }
+        #hyperdrive-haze-overlay.active { opacity: 1; }
+
         /* Joystick Zones */
         #joystick-zone-move { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 50; }
         #joystick-zone-look { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 150px; z-index: 50; }
@@ -25,17 +36,40 @@
 <body class="text-white font-sans">
 
     <div id="game-container" class="absolute inset-0"></div>
+    <div id="hyperdrive-haze-overlay"></div>
+
+    <!-- Start Screen: choose question range, then launch -->
+    <div id="start-screen" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70" style="z-index: 100;">
+        <div class="bg-slate-900 border-2 border-cyan-500 rounded-2xl p-6 w-80 text-center shadow-2xl">
+            <h1 class="text-2xl font-bold text-cyan-300 mb-1">Ayansh's Space Math Adventure</h1>
+            <p class="text-sm text-gray-400 mb-4">Set your mission difficulty</p>
+
+            <label class="block text-left text-sm text-gray-300 mb-1">Multiplicand max (1 – N)</label>
+            <input id="input-multiplicand" type="number" min="1" max="999" value="20"
+                class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 text-white border border-cyan-600 text-lg" />
+
+            <label class="block text-left text-sm text-gray-300 mb-1">Multiplier max (1 – N)</label>
+            <input id="input-multiplier" type="number" min="1" max="999" value="10"
+                class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-800 text-white border border-cyan-600 text-lg" />
+
+            <button id="launch-btn"
+                class="w-full bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-400 text-white font-bold py-3 rounded-xl text-xl shadow-lg touch-manipulation">
+                🚀 Launch Mission
+            </button>
+        </div>
+    </div>
 
     <!-- UI Overlay -->
     <div class="absolute top-4 left-4 z-10 pointer-events-none">
         <h1 class="text-2xl font-bold text-cyan-400">Score: <span id="score">0</span></h1>
+        <p class="text-lg font-bold text-green-400">Cash: <span id="cash">$0.00</span></p>
         <p class="text-sm text-gray-400 mt-1">Best: <span id="high-score">0</span></p>
         <p id="hyperdrive-status" class="text-green-400 font-bold hidden text-xl mt-2">HYPERDRIVE ACTIVE! (2X POINTS)</p>
     </div>
 
     <!-- Flight Timer -->
     <div class="absolute top-4 right-4 z-10 pointer-events-none text-right">
-        <h1 class="text-xl font-bold text-yellow-400">Next Question: <span id="flight-timer">30</span>s</h1>
+        <h1 class="text-xl font-bold text-yellow-400">Next Jump: <span id="flight-timer">20</span>s</h1>
     </div>
 
     <!-- System Freeze Warning -->
@@ -53,7 +87,7 @@
 
     <!-- Center Dashboard -->
     <div id="dashboard" class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 bg-opacity-80 p-4 rounded-xl border border-cyan-500 z-10 text-center shadow-lg min-w-[200px] pointer-events-none hidden">
-        <h2 class="text-sm text-gray-400 mb-1">ENGINE LOCK: ANSWER THE QUESTION</h2>
+        <h2 class="text-sm text-gray-400 mb-1">ENGINE LOCK: ENTER COORDINATES</h2>
         <div id="question" class="text-4xl font-bold text-yellow-300">Loading...</div>
         <div class="text-sm text-red-400 font-bold mt-2">Time: <span id="question-timer">10</span>s</div>
     </div>
@@ -78,6 +112,15 @@
         let isQuestionActive = false;
         let freeFlightTime = 20;
         let crashCooldown = false;
+        let gameStarted = false;
+        let maxMultiplicand = 20;
+        let maxMultiplier = 10;
+        const CASH_PER_POINT = 0.01; // 1 point = 1 cent (100 points = $1)
+
+        function updateScoreDisplay() {
+            document.getElementById('score').innerText = score;
+            document.getElementById('cash').innerText = '$' + (score * CASH_PER_POINT).toFixed(2);
+        }
 
         let hyperdriveTimer = null;
         let freezeInterval = null;
@@ -238,16 +281,12 @@
         scene.add(starField);
 
         // ================================================================
-        // Math Logic — difficulty ramps every 10 correct answers, capped
-        // at tier 3 (20x10 -> 35x16).
+        // Math Logic — questions drawn from the multiplicand/multiplier
+        // range chosen on the start screen (1..maxMultiplicand, 1..maxMultiplier).
         // ================================================================
         function generateQuestion() {
-            const tier = Math.min(Math.floor(score / 10), 3);
-            const maxA = 20 + tier * 5;
-            const maxB = 10 + tier * 2;
-
-            let num1 = Math.floor(Math.random() * maxA) + 1;
-            let num2 = Math.floor(Math.random() * maxB) + 1;
+            let num1 = Math.floor(Math.random() * maxMultiplicand) + 1;
+            let num2 = Math.floor(Math.random() * maxMultiplier) + 1;
             if (Math.random() > 0.5) [num1, num2] = [num2, num1];
 
             correctAnswer = num1 * num2;
@@ -322,7 +361,7 @@
         function handleQuestionTimeout() {
             if (!isQuestionActive) return; // already answered just as the clock hit 0
             score = Math.max(0, score - 1);
-            document.getElementById('score').innerText = score;
+            updateScoreDisplay();
             playTone(140, 0.4, 'sawtooth');
             hideQuestionUI();
             activateFreeze();
@@ -347,7 +386,7 @@
 
             if (answer === correctAnswer) {
                 score++;
-                document.getElementById('score').innerText = score;
+                updateScoreDisplay();
                 updateHighScore();
                 flashCorrect();
                 playTone(880, 0.15, 'sine');
@@ -357,7 +396,7 @@
                 activateHyperdrive();
             } else {
                 score = Math.max(0, score - 1);
-                document.getElementById('score').innerText = score;
+                updateScoreDisplay();
                 playTone(140, 0.4, 'sawtooth');
                 hideQuestionUI();
                 activateFreeze();
@@ -388,10 +427,14 @@
         function activateHyperdrive() {
             isHyperdrive = true;
             document.getElementById('hyperdrive-status').classList.remove('hidden');
+            document.getElementById('game-container').classList.add('hyperdrive-active');
+            document.getElementById('hyperdrive-haze-overlay').classList.add('active');
             if (hyperdriveTimer) clearTimeout(hyperdriveTimer);
             hyperdriveTimer = setTimeout(() => {
                 isHyperdrive = false;
                 document.getElementById('hyperdrive-status').classList.add('hidden');
+                document.getElementById('game-container').classList.remove('hyperdrive-active');
+                document.getElementById('hyperdrive-haze-overlay').classList.remove('active');
                 camera.fov = 75;
                 camera.updateProjectionMatrix();
             }, 5000);
@@ -402,7 +445,7 @@
             if (crashCooldown || isFrozen || isQuestionActive) return;
             crashCooldown = true;
             score = Math.max(0, score - 1);
-            document.getElementById('score').innerText = score;
+            updateScoreDisplay();
             playTone(100, 0.3, 'square', 0.2);
             document.getElementById('crash-warning').classList.remove('hidden');
             camera.position.addScaledVector(dir, -15); // push back out of the asteroid
@@ -410,9 +453,24 @@
             setTimeout(() => { crashCooldown = false; }, 1500);
         }
 
+        // Launch — reads the chosen range, hides the start screen, begins flight
+        function launchGame() {
+            const mc = parseInt(document.getElementById('input-multiplicand').value, 10);
+            const mp = parseInt(document.getElementById('input-multiplier').value, 10);
+            maxMultiplicand = (Number.isInteger(mc) && mc > 0) ? mc : 20;
+            maxMultiplier = (Number.isInteger(mp) && mp > 0) ? mp : 10;
+
+            document.getElementById('start-screen').classList.add('hidden');
+            freeFlightTime = 20;
+            document.getElementById('flight-timer').innerText = freeFlightTime;
+            getAudioCtx().resume();
+            gameStarted = true;
+        }
+        document.getElementById('launch-btn').addEventListener('click', launchGame);
+
         // Timer Loop
         flightInterval = setInterval(() => {
-            if (!isFrozen && !isQuestionActive) {
+            if (gameStarted && !isFrozen && !isQuestionActive) {
                 freeFlightTime--;
                 document.getElementById('flight-timer').innerText = freeFlightTime;
 
@@ -432,7 +490,7 @@
         });
 
         moveJoystick.on('move', (evt, data) => {
-            if (!isFrozen && !isQuestionActive) {
+            if (gameStarted && !isFrozen && !isQuestionActive) {
                 moveVector.forward = Math.sin(data.angle.radian) * data.distance * 0.02;
                 moveVector.right = Math.cos(data.angle.radian) * data.distance * 0.02;
             }
@@ -451,7 +509,7 @@
         });
 
         lookJoystick.on('move', (evt, data) => {
-            if (!isFrozen && !isQuestionActive) {
+            if (gameStarted && !isFrozen && !isQuestionActive) {
                 lookVector.x = Math.cos(data.angle.radian) * data.distance * 0.0005;
                 lookVector.y = Math.sin(data.angle.radian) * data.distance * 0.0005;
             }
@@ -490,17 +548,21 @@
             crystals.forEach(c => c.rotation.y += 0.05);
             planets.forEach(p => p.mesh.rotation.y += p.rotationSpeed);
 
-            if (!isFrozen && !isQuestionActive) {
+            if (gameStarted && !isFrozen && !isQuestionActive) {
                 recenterWorld();
 
-                const speedMult = isHyperdrive ? 3.0 : 0.5;
+                const speedMult = isHyperdrive ? 4.5 : 0.5;
 
                 if (isHyperdrive) {
-                    camera.fov = THREE.MathUtils.lerp(camera.fov, 100, 0.1);
+                    const t = performance.now() * 0.001;
+                    const targetFov = 98 + Math.sin(t * 3) * 4; // smooth continuous pulse, not a jump
+                    camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 0.08);
                     camera.updateProjectionMatrix();
+                    camera.rotation.z = Math.sin(t * 4) * 0.015; // gentle continuous bank — roll only, never touches movement direction
                 } else {
                     camera.fov = THREE.MathUtils.lerp(camera.fov, 75, 0.1);
                     camera.updateProjectionMatrix();
+                    camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, 0, 0.1); // settle back level
                 }
 
                 if (lookVector.x !== 0 || lookVector.y !== 0) {
@@ -549,7 +611,7 @@
                     if (crystal.visible && camera.position.distanceTo(crystal.position) < 15) {
                         crystal.visible = false;
                         score += isHyperdrive ? 2 : 1;
-                        document.getElementById('score').innerText = score;
+                        updateScoreDisplay();
                         updateHighScore();
                         playTone(1046, 0.1, 'triangle', 0.12);
 
