@@ -41,14 +41,14 @@
     <!-- Start Screen: choose question range, then launch -->
     <div id="start-screen" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70" style="z-index: 100;">
         <div class="bg-slate-900 border-2 border-cyan-500 rounded-2xl p-6 w-80 text-center shadow-2xl">
-            <h1 class="text-2xl font-bold text-cyan-300 mb-1">Space Math Adventure</h1>
+            <h1 class="text-2xl font-bold text-cyan-300 mb-1">Space Math Multiplication Adventure</h1>
             <p class="text-sm text-gray-400 mb-4">Set your mission difficulty</p>
 
-            <label class="block text-left text-sm text-gray-300 mb-1">Multiplicand max</label>
+            <label class="block text-left text-sm text-gray-300 mb-1">Multiplicand max (1 – N)</label>
             <input id="input-multiplicand" type="number" min="1" max="999" value="20"
                 class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 text-white border border-cyan-600 text-lg" />
 
-            <label class="block text-left text-sm text-gray-300 mb-1">Multiplier max</label>
+            <label class="block text-left text-sm text-gray-300 mb-1">Multiplier max (1 – N)</label>
             <input id="input-multiplier" type="number" min="1" max="999" value="10"
                 class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-800 text-white border border-cyan-600 text-lg" />
 
@@ -62,7 +62,6 @@
     <!-- UI Overlay -->
     <div class="absolute top-4 left-4 z-10 pointer-events-none">
         <h1 class="text-2xl font-bold text-cyan-400">Score: <span id="score">0</span></h1>
-        <!-- <p class="text-lg font-bold text-green-400">Cash: <span id="cash">$0.00</span></p> -->
         <p class="text-sm text-gray-400 mt-1">Best: <span id="high-score">0</span></p>
         <p id="hyperdrive-status" class="text-green-400 font-bold hidden text-xl mt-2">HYPERDRIVE ACTIVE! (2X POINTS)</p>
     </div>
@@ -115,11 +114,9 @@
         let gameStarted = false;
         let maxMultiplicand = 20;
         let maxMultiplier = 10;
-        const CASH_PER_POINT = 0.01; // 1 point = 1 cent (100 points = $1)
 
         function updateScoreDisplay() {
             document.getElementById('score').innerText = score;
-            document.getElementById('cash').innerText = '$' + (score * CASH_PER_POINT).toFixed(2);
         }
 
         let hyperdriveTimer = null;
@@ -581,14 +578,8 @@
                 camera.getWorldDirection(direction);
                 rightVector.crossVectors(direction, camera.up).normalize();
 
-                // Force full forward thrust (1.0) if hyperdrive is active, otherwise rely on joystick
-                const currentForward = isHyperdrive ? 1.0 : moveVector.forward;
-
-                if (currentForward !== 0) camera.position.addScaledVector(direction, currentForward * speedMult);
+                if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
                 if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
-
-                // if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
-                // if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
 
                 // Planets: recycle only
                 planets.forEach(p => {
