@@ -581,8 +581,14 @@
                 camera.getWorldDirection(direction);
                 rightVector.crossVectors(direction, camera.up).normalize();
 
-                if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
+                // Force full forward thrust (1.0) if hyperdrive is active, otherwise rely on joystick
+                const currentForward = isHyperdrive ? 1.0 : moveVector.forward;
+
+                if (currentForward !== 0) camera.position.addScaledVector(direction, currentForward * speedMult);
                 if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
+
+                // if (moveVector.forward !== 0) camera.position.addScaledVector(direction, moveVector.forward * speedMult);
+                // if (moveVector.right !== 0) camera.position.addScaledVector(rightVector, moveVector.right * speedMult);
 
                 // Planets: recycle only
                 planets.forEach(p => {
